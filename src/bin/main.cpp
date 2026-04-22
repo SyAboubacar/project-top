@@ -1,3 +1,6 @@
+#define ANKERL_NANOBENCH_IMPLEMENT
+#include <nanobench.h>
+
 #include <cassert>
 #include <cmath>
 #include <cstddef>
@@ -130,6 +133,7 @@ int main(int argc, char* argv[]) {
 
     // Propagate values from node to neighboors
     lbm_comm_halo_exchange(&mesh_comm, &temp);
+    
     propagation(&mesh, &temp);
     // Need to wait all before doing next step
     MPI_Barrier(MPI_COMM_WORLD);
