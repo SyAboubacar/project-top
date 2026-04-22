@@ -115,7 +115,6 @@ void lbm_comm_print(const lbm_comm_t* mesh_comm) {
     mesh_comm->height
   );
 }
-static MPI_Syncfunc_t* MPI_Syncall = PMPI_Syncall_cb;
 
 void lbm_comm_init(lbm_comm_t* mesh_comm, int rank, int comm_size, uint32_t width, uint32_t height) {
   // Compute splitting
@@ -356,7 +355,7 @@ void lbm_comm_halo_exchange(lbm_comm_t* mesh, Mesh* mesh_to_process) {
   lbm_comm_sync_ghosts_horizontal(mesh, mesh_to_process, COMM_RECV, mesh->right_id, mesh->width - 1);
 
   // Synchronize all remaining in-flight communications before exiting
-  MPI_Syncall(MPI_COMM_WORLD);
+  MPI_Barrier(MPI_COMM_WORLD);
 }
 
 void save_frame_all_domain(FILE* fp, Mesh* source_mesh, Mesh* temp) {
