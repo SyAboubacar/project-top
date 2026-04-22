@@ -251,29 +251,15 @@ lbm_comm_sync_ghosts_vertical(Mesh* mesh_to_process, lbm_comm_type_t comm_type, 
     return;
   }
 
+  int buf_size = mesh_to_process->width -3;
   MPI_Status status;
   switch (comm_type) {
   case COMM_SEND:
-    for (size_t x = 1; x < mesh_to_process->width - 2; x++) {
-      for (size_t k = 0; k < DIRECTIONS; k++) {
-        MPI_Send(&Mesh_get_cell(mesh_to_process, x, y)[k], 1, MPI_DOUBLE, target_rank, k, MPI_COMM_WORLD);
-      }
-    }
+    MPI_Send(Mesh_get_cell(mesh_to_process, 1, y), buf_size*DIRECTIONS, MPI_DOUBLE, target_rank, 0, MPI_COMM_WORLD);
     break;
+    
   case COMM_RECV:
-    for (size_t x = 1; x < mesh_to_process->width - 2; x++) {
-      for (size_t k = 0; k < DIRECTIONS; k++) {
-        MPI_Recv(
-          &Mesh_get_cell(mesh_to_process, x, y)[k],
-          DIRECTIONS,
-          MPI_DOUBLE,
-          target_rank,
-          k,
-          MPI_COMM_WORLD,
-          &status
-        );
-      }
-    }
+    MPI_Recv(Mesh_get_cell(mesh_to_process, 1, y),DIRECTIONS*buf_size,MPI_DOUBLE,target_rank,0,MPI_COMM_WORLD,&status);
     break;
   default:
     fatal("unknown type of communication");
