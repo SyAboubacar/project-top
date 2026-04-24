@@ -2,12 +2,25 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstddef>
 
 #include <lbm/config.hpp>
 #include <lbm/tpl.hpp>
 
-/// @brief A cell is an array of double `DIRECTIONS` to store microscopic / probabilities (`f_i`).
-typedef double* lbm_mesh_cell_t;
+/// @brief View over one cell stored in a direction-major SoA mesh.
+typedef struct lbm_mesh_cell_s {
+  double* cells;
+  uint32_t cell_count;
+  uint32_t id;
+
+  inline double& operator[](size_t k) {
+    return cells[k * cell_count + id];
+  }
+
+  inline const double& operator[](size_t k) const {
+    return cells[k * cell_count + id];
+  }
+} lbm_mesh_cell_t;
 
 /// @brief Representation of a vector to manipulate macroscopic velocities.
 typedef double Vector[DIMENSIONS];
@@ -15,8 +28,10 @@ typedef double Vector[DIMENSIONS];
 /// @brief Defines a mesh for the local domain.
 /// This mesh contains a border for * phantom meshes of a cell.
 typedef struct Mesh {
-  /// Cells of a mesh of dimension `MESH_WIDTH` * `MESH_HEIGHT`.
-  lbm_mesh_cell_t cells;
+  /// Cells stored direction-major: direction blocks contain `cell_count` contiguous cells.
+  double* cells;
+  /// Number of cells in one direction block.
+  uint32_t cell_count;
   /// Width of the local mesh (phantom meshes included).
   uint32_t width;
   /// Height of the local mesh (phantom meshes included).
@@ -98,14 +113,23 @@ void save_frame(FILE* fp, const Mesh* mesh);
 void fatal(const char* message);
 
 /// @brief Retrieves a cell of a mesh given its coordinates.
-static inline lbm_mesh_cell_t Mesh_get_cell(const Mesh* mesh, int x, int y) {
-  return &mesh->cells[(x * mesh->height + y) * DIRECTIONS];
+static inline uint32_t Mesh_cell_id(const Mesh* mesh, int x, int y) {
+  return x * mesh->height + y;
 }
 
-/// @brief Retrieves a column of a mesh given the `x` coordinate.
-static inline lbm_mesh_cell_t Mesh_get_col(const Mesh* mesh, int x) {
-  // `+ DIRECTIONS` to skip the first (phantom) line
-  return &mesh->cells[x * mesh->height * DIRECTIONS + DIRECTIONS];
+/// @brief Retrieves a cell view of a mesh given its coordinates.
+static inline lbm_mesh_cell_t Mesh_get_cell(const Mesh* mesh, int x, int y) {
+  return {mesh->cells, mesh->cell_count, Mesh_cell_id(mesh, x, y)};
+}
+
+/// @brief Retrieves the contiguous block for a microscopic direction.
+static inline double* Mesh_get_direction(const Mesh* mesh, size_t k) {
+  return &mesh->cells[k * mesh->cell_count];
+}
+
+/// @brief Retrieves one microscopic value from a direction-major mesh.
+static inline double& Mesh_get_value(const Mesh* mesh, int x, int y, size_t k) {
+  return Mesh_get_direction(mesh, k)[Mesh_cell_id(mesh, x, y)];
 }
 
 /// @brief Retrieves a pointer on the cell type of a mesh given its coordinates.
