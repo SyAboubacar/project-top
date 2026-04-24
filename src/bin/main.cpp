@@ -133,25 +133,26 @@ int main(int argc, char* argv[]) {
     // Compute special actions (border, obstacle...)
     special_cells(&mesh, &mesh_type, &mesh_comm);
     // Need to wait all before doing next step
-    MPI_Barrier(MPI_COMM_WORLD);
+    //MPI_Barrier(MPI_COMM_WORLD);
 
     // Compute collision term
     collision(&temp, &mesh);
     // Need to wait all before doing next step
-    MPI_Barrier(MPI_COMM_WORLD);
+    //MPI_Barrier(MPI_COMM_WORLD);
     
-        // Propagate values from node to neighboors
+    // Propagate values from node to neighboors
     lbm_comm_halo_exchange(&mesh_comm, &temp,i);
 
     propagation(&mesh, &temp);
     // Need to wait all before doing next step
-    MPI_Barrier(MPI_COMM_WORLD);
+    //MPI_Barrier(MPI_COMM_WORLD);
 
     // Save step
     if (i % WRITE_STEP_INTERVAL == 0 && lbm_gbl_config.output_filename != NULL) {
       save_frame_all_domain(fp, &mesh, &temp_render);
     }
   }
+  
   const double end_time      = MPI_Wtime();
   const double elapsed_time  = end_time - start_time;
   const uint64_t total_cells = static_cast<uint64_t>(MESH_WIDTH) * MESH_HEIGHT * comm_size;
