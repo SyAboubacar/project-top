@@ -6,7 +6,7 @@ requires-python = ">=3.10"
 dependencies = ["psutil", "rich", "tqdm"]
 
 [project.scripts]
-lbm-viz = "lbm_viz:main"
+lbm-viz = "lbm_viz.__main__:main"
 
 [build-system]
 requires = ["hatchling"]
