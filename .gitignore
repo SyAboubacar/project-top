@@ -2,3 +2,6 @@ build*
 perf*
 maqao*
 results*
+events*
+tau*
+profile*

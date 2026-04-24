@@ -15,6 +15,7 @@
 
 #include <lbm/lib.hpp>
 
+
 /// @brief Writes the output file's header.
 /// @param fp File descriptor to write to.
 /// @param mesh_comm Domain to save.
@@ -115,12 +116,22 @@ int main(int argc, char* argv[]) {
     putc('\n', stdout);
   }
 
+
+
+  const int max_req_comm = 12+8+(mesh.height-2)*4;
+  MPI_Request* requests = (MPI_Request*)malloc(sizeof(MPI_Request)*max_req_comm);
+  int request_idx = 0;
+
   // Time steps
   const double start_time = MPI_Wtime();
   for (ssize_t i = 1; i <= ITERATIONS; i++) {
     if (rank == RANK_MASTER) {
       fprintf(stderr, "\rStep: %6d/%6d", i, ITERATIONS);
     }
+
+    // Propagate values from node to neighboors
+    lbm_comm_halo_exchange(&mesh_comm, &temp,i,requests,&request_idx);
+
     // Compute special actions (border, obstacle...)
     special_cells(&mesh, &mesh_type, &mesh_comm);
     // Need to wait all before doing next step
@@ -131,8 +142,8 @@ int main(int argc, char* argv[]) {
     // Need to wait all before doing next step
     MPI_Barrier(MPI_COMM_WORLD);
 
-    // Propagate values from node to neighboors
-    lbm_comm_halo_exchange(&mesh_comm, &temp);
+    // wait for ghost cells 
+    MPI_Waitall(request_idx,requests,MPI_STATUS_IGNORE);
     
     propagation(&mesh, &temp);
     // Need to wait all before doing next step
@@ -163,6 +174,8 @@ int main(int argc, char* argv[]) {
   Mesh_release(&temp);
   Mesh_release(&temp_render);
   lbm_mesh_type_t_release(&mesh_type);
+
+  free(requests);
 
   // Close MPI
   MPI_Finalize();
