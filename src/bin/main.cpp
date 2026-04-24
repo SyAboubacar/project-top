@@ -122,15 +122,13 @@ int main(int argc, char* argv[]) {
   MPI_Request* requests = (MPI_Request*)malloc(sizeof(MPI_Request)*max_req_comm);
   int request_idx = 0;
 
+
   // Time steps
   const double start_time = MPI_Wtime();
   for (ssize_t i = 1; i <= ITERATIONS; i++) {
     if (rank == RANK_MASTER) {
       fprintf(stderr, "\rStep: %6d/%6d", i, ITERATIONS);
     }
-
-    // Propagate values from node to neighboors
-    lbm_comm_halo_exchange(&mesh_comm, &temp,i,requests,&request_idx);
 
     // Compute special actions (border, obstacle...)
     special_cells(&mesh, &mesh_type, &mesh_comm);
@@ -141,10 +139,10 @@ int main(int argc, char* argv[]) {
     collision(&temp, &mesh);
     // Need to wait all before doing next step
     MPI_Barrier(MPI_COMM_WORLD);
-
-    // wait for ghost cells 
-    MPI_Waitall(request_idx,requests,MPI_STATUS_IGNORE);
     
+        // Propagate values from node to neighboors
+    lbm_comm_halo_exchange(&mesh_comm, &temp,i);
+
     propagation(&mesh, &temp);
     // Need to wait all before doing next step
     MPI_Barrier(MPI_COMM_WORLD);

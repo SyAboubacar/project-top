@@ -77,7 +77,7 @@ void lbm_comm_release(lbm_comm_t* mesh);
 void lbm_comm_print(const lbm_comm_t* mesh_comm);
 
 /// @brief Performance halo exchange of ghost cells.
-void lbm_comm_halo_exchange(lbm_comm_t* mesh, Mesh* mesh_to_process,int iteration,MPI_Request* all_requests,int* request_idx);
+void lbm_comm_halo_exchange(lbm_comm_t* mesh, Mesh* mesh_to_process,int iteration);
 
 /// @brief Mesh rendering by doing reduction on rank 0 (master).
 /// @param mesh_comm Communication mesh to use.
