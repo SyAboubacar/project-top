@@ -59,6 +59,8 @@ void get_cell_velocity(Vector v, const lbm_mesh_cell_t cell, double cell_density
   assert(v != NULL);
   assert(cell != NULL);
 
+  const double inv_cell_density = 1.0 / cell_density;
+
   // Loop on all dimensions
   for (size_t d = 0; d < DIMENSIONS; d++) {
     v[d] = 0.0;
@@ -69,7 +71,7 @@ void get_cell_velocity(Vector v, const lbm_mesh_cell_t cell, double cell_density
     }
 
     // Normalize
-    v[d] /= cell_density;
+    v[d] *= inv_cell_density;
   }
 }
 
@@ -81,7 +83,7 @@ double compute_equilibrium_profile(Vector velocity, double density, int directio
   const double p2 = p * p;
 
   // Terms without density and direction weight
-  double f_eq = 1.0 + (3.0 * p) + ((9.0 / 2.0) * p2) - ((3.0 / 2.0) * v2);
+  double f_eq = 1.0 + (3.0 * p) + (4.5 * p2) - (1.5 * v2);
 
   // Multiply everything by the density and direction weight
   f_eq *= equil_weight[direction] * density;
@@ -189,10 +191,81 @@ void collision(Mesh* mesh_out, const Mesh* mesh_in) {
   assert(mesh_in->width == mesh_out->width);
   assert(mesh_in->height == mesh_out->height);
 
+  const double relax = RELAX_PARAMETER;
+  constexpr double one_ninth        = 1.0 / 9.0;
+  constexpr double four_ninths      = 4.0 * one_ninth;
+  constexpr double one_thirty_sixth = 1.0 / 36.0;
+
   // Loop on all inner cells
   for (size_t i = 1; i < mesh_in->width - 1; i++) {
     for (size_t j = 1; j < mesh_in->height - 1; j++) {
-      compute_cell_collision(Mesh_get_cell(mesh_out, i, j), Mesh_get_cell(mesh_in, i, j));
+      lbm_mesh_cell_t cell_out       = Mesh_get_cell(mesh_out, i, j);
+      const lbm_mesh_cell_t cell_in  = Mesh_get_cell(mesh_in, i, j);
+      const double f0                = cell_in[0];
+      const double f1                = cell_in[1];
+      const double f2                = cell_in[2];
+      const double f3                = cell_in[3];
+      const double f4                = cell_in[4];
+      const double f5                = cell_in[5];
+      const double f6                = cell_in[6];
+      const double f7                = cell_in[7];
+      const double f8                = cell_in[8];
+
+      // Same macroscopic values as compute_cell_collision(), inlined for D2Q9.
+      const double density = f0 + f1 + f2 + f3 + f4 + f5 + f6 + f7 + f8;
+      const double inv_density = 1.0 / density;
+      const double vx          = (f1 - f3 + f5 - f6 - f7 + f8) * inv_density;
+      const double vy          = (f2 - f4 + f5 + f6 - f7 - f8) * inv_density;
+      const double v2          = vx * vx + vy * vy;
+      const double eq_base     = 1.0 - 1.5 * v2;
+      const double rho_w0      = density * four_ninths;
+      const double rho_w1      = density * one_ninth;
+      const double rho_w2      = density * one_thirty_sixth;
+
+      double p    = 0.0;
+      double p2   = 0.0;
+      double f_eq = rho_w0 * eq_base;
+      cell_out[0] = f0 - relax * (f0 - f_eq);
+
+      p           = vx;
+      p2          = p * p;
+      f_eq        = rho_w1 * (eq_base + 3.0 * p + 4.5 * p2);
+      cell_out[1] = f1 - relax * (f1 - f_eq);
+
+      p           = vy;
+      p2          = p * p;
+      f_eq        = rho_w1 * (eq_base + 3.0 * p + 4.5 * p2);
+      cell_out[2] = f2 - relax * (f2 - f_eq);
+
+      p           = -vx;
+      p2          = p * p;
+      f_eq        = rho_w1 * (eq_base + 3.0 * p + 4.5 * p2);
+      cell_out[3] = f3 - relax * (f3 - f_eq);
+
+      p           = -vy;
+      p2          = p * p;
+      f_eq        = rho_w1 * (eq_base + 3.0 * p + 4.5 * p2);
+      cell_out[4] = f4 - relax * (f4 - f_eq);
+
+      p           = vx + vy;
+      p2          = p * p;
+      f_eq        = rho_w2 * (eq_base + 3.0 * p + 4.5 * p2);
+      cell_out[5] = f5 - relax * (f5 - f_eq);
+
+      p           = -vx + vy;
+      p2          = p * p;
+      f_eq        = rho_w2 * (eq_base + 3.0 * p + 4.5 * p2);
+      cell_out[6] = f6 - relax * (f6 - f_eq);
+
+      p           = -vx - vy;
+      p2          = p * p;
+      f_eq        = rho_w2 * (eq_base + 3.0 * p + 4.5 * p2);
+      cell_out[7] = f7 - relax * (f7 - f_eq);
+
+      p           = vx - vy;
+      p2          = p * p;
+      f_eq        = rho_w2 * (eq_base + 3.0 * p + 4.5 * p2);
+      cell_out[8] = f8 - relax * (f8 - f_eq);
     }
   }
 }
