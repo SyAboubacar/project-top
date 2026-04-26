@@ -20,8 +20,8 @@ const Vector direction_matrix[DIRECTIONS] = {
   // clang-format on
 };
 
-const float dir0[9] = {0, 1, 0, -1, 0, 1, -1, -1, 1};
-const float dir1[9] = {0, 0, 1, 0, -1, 1, 1, -1, -1};
+const double dir0[9] = {0, 1, 0, -1, 0, 1, -1, -1, 1};
+const double dir1[9] = {0, 0, 1, 0, -1, 1, 1, -1, -1};
 
 
 #else
@@ -95,8 +95,22 @@ double compute_equilibrium_profile(Vector velocity, double density, int directio
   return f_eq;
 }
 
-inline void compute_cell_collision(lbm_mesh_cell_t __restrict__ cell_out, const lbm_mesh_cell_t __restrict__ cell_in) {
-  // Compute macroscopic values
+
+inline double reduce_avx2(__m256d v) {
+  __m128d low = _mm256_extractf128_pd(v, 0);   // [a0, a1]
+  __m128d high = _mm256_extractf128_pd(v, 1);  // [a2, a3]
+  
+  // Additionner les 2 lanes
+  __m128d sum128 = _mm_add_pd(low, high);       // [a0+a2, a1+a3]
+  
+  // HADD SSE (inverse et additionne)
+  __m128d hadd = _mm_hadd_pd(sum128, sum128);   // [a0+a2+a1+a3, a0+a2+a1+a3]
+  
+  return _mm_cvtsd_f64(hadd);  // Extraire le premier double
+}
+
+inline void compute_cell_collision(lbm_mesh_cell_t cell_out, const lbm_mesh_cell_t cell_in) {
+  // Compute macroscop  ic values
 
   double density;
   Vector v;
@@ -116,19 +130,36 @@ inline void compute_cell_collision(lbm_mesh_cell_t __restrict__ cell_out, const 
   double _v0 = 0.0;
   double _v1 = 0.0;
 
-  // Sum all directions
-  for (size_t k = 0; k < DIRECTIONS; k++) {
-    float c = cell_in[k];
-    _v0 += (c * dir0[k]);
-    _v1 += (c * dir1[k]);
+  __m256d c_4a = _mm256_loadu_pd(&cell_in[0]);   // 4 premiers (0-3)
+  __m256d c_4b = _mm256_loadu_pd(&cell_in[4]);   // 4 suivants (4-7)
 
-    density += c;
-  }
+  __m256d d0_4a = _mm256_loadu_pd(&dir0[0]);
+  __m256d d0_4b = _mm256_loadu_pd(&dir0[4]);
 
-  density = 1/density;
+  __m256d d1_4a = _mm256_loadu_pd(&dir1[0]);
+  __m256d d1_4b = _mm256_loadu_pd(&dir1[4]);
+
+  // Multiplications
+  __m256d mult0_a = _mm256_mul_pd(c_4a, d0_4a);
+  __m256d mult0_b = _mm256_mul_pd(c_4b, d0_4b);
+  __m256d mult1_a = _mm256_mul_pd(c_4a, d1_4a);
+  __m256d mult1_b = _mm256_mul_pd(c_4b, d1_4b);
+
+  // Réductions
+  double sum_v0 = reduce_avx2(mult0_a) + reduce_avx2(mult0_b);
+  double sum_v1 = reduce_avx2(mult1_a) + reduce_avx2(mult1_b);
+  double sum_c = reduce_avx2(c_4a) + reduce_avx2(c_4b);
+
+  // + 9ème élément (déjà en double)
+  _v0 = sum_v0 +  cell_in[8] * dir0[8];
+  _v1 = sum_v1 + cell_in[8] * dir1[8];
+  density = sum_c + cell_in[8];
+
+
+  double inv_density = 1.0 / density;
   // Normalize
-  v[0] = _v0*density;
-  v[1] = _v1*density;
+  v[0] = _v0*inv_density;
+  v[1] = _v1*inv_density;
 
 
   c1 = 9.0 / 2.0;
