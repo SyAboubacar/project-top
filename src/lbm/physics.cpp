@@ -111,88 +111,129 @@ inline double reduce_avx2(__m256d v) {
 
 inline void compute_cell_collision(lbm_mesh_cell_t cell_out, const lbm_mesh_cell_t cell_in) {
   // Compute macroscop  ic values
-
-  double density;
   Vector v;
-  double f_eq;
-  double p;
-  double p2;
-  double v2;
+  double density,f_eq,p,p2,c1,c2;
 
-  double c1;
-  double c2;
 
-  // Loop on all dimensions
-  density = 0.0;
-  v[0] = 0.0;
-  v[1] = 0.0;
+  // Load cell_in[k]
+  __m256d c_4a = _mm256_loadu_pd(&cell_in[0]); 
+  __m256d c_4b = _mm256_loadu_pd(&cell_in[4]); 
 
-  double _v0 = 0.0;
-  double _v1 = 0.0;
-
-  __m256d c_4a = _mm256_loadu_pd(&cell_in[0]);   // 4 premiers (0-3)
-  __m256d c_4b = _mm256_loadu_pd(&cell_in[4]);   // 4 suivants (4-7)
-
+  // Load directions[k][0/1]
   __m256d d0_4a = _mm256_loadu_pd(&dir0[0]);
   __m256d d0_4b = _mm256_loadu_pd(&dir0[4]);
 
   __m256d d1_4a = _mm256_loadu_pd(&dir1[0]);
   __m256d d1_4b = _mm256_loadu_pd(&dir1[4]);
 
-  // Multiplications
+  // Cell_in[k]*directions[k][0/1]
   __m256d mult0_a = _mm256_mul_pd(c_4a, d0_4a);
   __m256d mult0_b = _mm256_mul_pd(c_4b, d0_4b);
   __m256d mult1_a = _mm256_mul_pd(c_4a, d1_4a);
   __m256d mult1_b = _mm256_mul_pd(c_4b, d1_4b);
 
-  // Réductions
+  // v[0]/v[1] += Cell_in[k]*directions[k][0/1]
   double sum_v0 = reduce_avx2(mult0_a) + reduce_avx2(mult0_b);
   double sum_v1 = reduce_avx2(mult1_a) + reduce_avx2(mult1_b);
   double sum_c = reduce_avx2(c_4a) + reduce_avx2(c_4b);
 
-  // + 9ème élément (déjà en double)
-  _v0 = sum_v0 +  cell_in[8] * dir0[8];
-  _v1 = sum_v1 + cell_in[8] * dir1[8];
+  // add of the last element
+  double _v0 = sum_v0 +  cell_in[8] * dir0[8];
+  double _v1 = sum_v1 + cell_in[8] * dir1[8];
   density = sum_c + cell_in[8];
 
-
+  // we use 1/density to avoid 1 divide
   double inv_density = 1.0 / density;
+
   // Normalize
   v[0] = _v0*inv_density;
   v[1] = _v1*inv_density;
 
 
+  // we put outside constant calcul
   c1 = 9.0 / 2.0;
   c2 = 3.0 / 2.0;
   
-  // Compute f at equilibrium
-  v2 = get_vect_norm_2(v, v);
+  // Compute v2 norm
+  const double v2 = v[0]*v[0] + v[1]*v[1];
   const double c2_v2 = c2*v2;
 
   double f_eq_t1,f_eq_t2;
 
-  // Loop on microscopic directions
-  for (size_t k = 0; k < DIRECTIONS; k++) {
+  // direction[0]*v[0/1] + direction[1]*v[0/1]
+  __m256d v0_4a = _mm256_set1_pd(v[0]);
+  __m256d v0_4b = _mm256_set1_pd(v[0]);
 
-    // Compute `e_i * v_i / c`
-    p = 0.0;
-    p += dir0[k] * v[0];
-    p += dir1[k] * v[1];
+  __m256d v1_4a = _mm256_set1_pd(v[1]);
+  __m256d v1_4b = _mm256_set1_pd(v[1]);
 
-    p2 = p * p;
+  mult0_a = _mm256_mul_pd(v0_4a,d0_4a);
+  mult0_b = _mm256_mul_pd(v0_4b,d0_4b);
 
-    // Terms without density and direction weight
-    f_eq_t1 = 1.0 + (3.0 * p);
-    f_eq_t2 = ((c1) * p2) - (c2_v2);
-    f_eq = f_eq_t1 + f_eq_t2;
-
-    // Multiply everything by the density and direction weight
-    f_eq *= equil_weight[k] * density;
+  mult1_a = _mm256_mul_pd(v1_4a,d1_4a);
+  mult1_b = _mm256_mul_pd(v1_4b,d1_4b);
 
 
-    // Compute f_out
-    cell_out[k] = cell_in[k] - RELAX_PARAMETER * (cell_in[k] - f_eq);
-  }
+  __m256d p_4a = _mm256_add_pd(mult0_a,mult1_a);
+  __m256d p_4b = _mm256_add_pd(mult0_b,mult1_b);
+
+  // calcul de p2 = p*p
+  __m256d p2_4a = _mm256_mul_pd(p_4a,p_4a);
+  __m256d p2_4b = _mm256_mul_pd(p_4b,p_4b);
+  
+
+  __m256d _1 = _mm256_set1_pd(1.0);
+  __m256d _3 = _mm256_set1_pd(3.0);
+
+  // 1.0 + (3.0 * p)
+  __m256d f_eq_t1_a = _mm256_fmadd_pd(_3,p_4a,_1);
+  __m256d f_eq_t1_b = _mm256_fmadd_pd(_3,p_4b,_1);
+
+  __m256d _c1 = _mm256_set1_pd(c1);
+  __m256d _c2v2 = _mm256_set1_pd(c2_v2);
+
+  // (c1* p2) - (c2 * v2);
+  __m256d f_eq_t2_a = _mm256_fmsub_pd(_c1,p2_4a,_c2v2);
+  __m256d f_eq_t2_b = _mm256_fmsub_pd(_c1,p2_4b,_c2v2);
+
+  __m256d f_eq_a = _mm256_add_pd(f_eq_t1_a,f_eq_t2_a);
+  __m256d f_eq_b = _mm256_add_pd(f_eq_t1_b,f_eq_t2_b);
+
+  // equil_weight[direction]
+  __m256d equil_4a = _mm256_loadu_pd(&equil_weight[0]); 
+  __m256d equil_4b = _mm256_loadu_pd(&equil_weight[4]);
+
+  // equil_weight[direction] * density;
+  __m256d _density = _mm256_set1_pd(density);
+  __m256d equil_mult_c_a = _mm256_mul_pd(equil_4a,_density);
+  __m256d equil_mult_c_b = _mm256_mul_pd(equil_4b,_density);
+
+  __m256d f_eq_final_a = _mm256_mul_pd(f_eq_a,equil_mult_c_a);
+  __m256d f_eq_final_b = _mm256_mul_pd(f_eq_b,equil_mult_c_b);
+
+  __m256d relax = _mm256_set1_pd(RELAX_PARAMETER);
+
+  // (cell_in[k] - f_eq)
+  __m256d diff_a = _mm256_sub_pd(c_4a, f_eq_final_a);
+  __m256d diff_b = _mm256_sub_pd(c_4b, f_eq_final_b);
+
+
+  __m256d out_a = _mm256_fnmadd_pd(relax, diff_a, c_4a);
+  __m256d out_b = _mm256_fnmadd_pd(relax, diff_b, c_4b);
+
+
+  // cell_out[k] = cell_in[k] - RELAX_PARAMETER * (cell_in[k] - f_eq)
+  _mm256_storeu_pd(&cell_out[0], out_a);
+  _mm256_storeu_pd(&cell_out[4], out_b);
+
+
+  double p9 = dir0[8] * v[0] + dir1[8] * v[1];
+  double p2_9 = p9 * p9;
+  double f_eq_t1_9 = 1.0 + 3.0 * p9;
+  double f_eq_t2_9 = c1 * p2_9 - c2_v2;
+  double f_eq_9 = (f_eq_t1_9 + f_eq_t2_9) * equil_weight[8] * density;
+  cell_out[8] = cell_in[8] - RELAX_PARAMETER * (cell_in[8] - f_eq_9);
+
 }
 
 void compute_bounce_back(lbm_mesh_cell_t cell) {
