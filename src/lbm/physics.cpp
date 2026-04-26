@@ -20,8 +20,8 @@ const Vector direction_matrix[DIRECTIONS] = {
   // clang-format on
 };
 
-const double dir0[9] = {0, 1, 0, -1, 0, 1, -1, -1, 1};
-const double dir1[9] = {0, 0, 1, 0, -1, 1, 1, -1, -1};
+alignas(32) const double dir0[9] = {0, 1, 0, -1, 0, 1, -1, -1, 1};
+alignas(32) const double dir1[9] = {0, 0, 1, 0, -1, 1, 1, -1, -1};
 
 
 #else
@@ -30,7 +30,7 @@ const double dir1[9] = {0, 0, 1, 0, -1, 1, 1, -1, -1};
 
 #if DIRECTIONS == 9
 /// Weigths used to compensate the differences in lenght of the 9 directional vectors.
-const double equil_weight[DIRECTIONS] = {
+alignas(32) const double equil_weight[DIRECTIONS] = {
   // clang-format off
   4.0 / 9.0,
   1.0 / 9.0, 1.0 / 9.0, 1.0 / 9.0, 1.0 / 9.0,
@@ -96,6 +96,9 @@ double compute_equilibrium_profile(Vector velocity, double density, int directio
 }
 
 
+alignas(32) static const double C_ONE[4]   = {1.0, 1.0, 1.0, 1.0};
+alignas(32) static const double C_THREE[4] = {3.0, 3.0, 3.0, 3.0};
+
 inline double reduce_avx2(__m256d v) {
   __m128d low = _mm256_extractf128_pd(v, 0);   // [a0, a1]
   __m128d high = _mm256_extractf128_pd(v, 1);  // [a2, a3]
@@ -120,11 +123,11 @@ inline void compute_cell_collision(lbm_mesh_cell_t cell_out, const lbm_mesh_cell
   __m256d c_4b = _mm256_loadu_pd(&cell_in[4]); 
 
   // Load directions[k][0/1]
-  __m256d d0_4a = _mm256_loadu_pd(&dir0[0]);
-  __m256d d0_4b = _mm256_loadu_pd(&dir0[4]);
+  __m256d d0_4a = _mm256_load_pd(&dir0[0]);
+  __m256d d0_4b = _mm256_load_pd(&dir0[4]);
 
-  __m256d d1_4a = _mm256_loadu_pd(&dir1[0]);
-  __m256d d1_4b = _mm256_loadu_pd(&dir1[4]);
+  __m256d d1_4a = _mm256_load_pd(&dir1[0]);
+  __m256d d1_4b = _mm256_load_pd(&dir1[4]);
 
   // Cell_in[k]*directions[k][0/1]
   __m256d mult0_a = _mm256_mul_pd(c_4a, d0_4a);
@@ -133,9 +136,13 @@ inline void compute_cell_collision(lbm_mesh_cell_t cell_out, const lbm_mesh_cell
   __m256d mult1_b = _mm256_mul_pd(c_4b, d1_4b);
 
   // v[0]/v[1] += Cell_in[k]*directions[k][0/1]
-  double sum_v0 = reduce_avx2(mult0_a) + reduce_avx2(mult0_b);
-  double sum_v1 = reduce_avx2(mult1_a) + reduce_avx2(mult1_b);
-  double sum_c = reduce_avx2(c_4a) + reduce_avx2(c_4b);
+  __m256d add_mult0 = _mm256_add_pd(mult0_a, mult0_b);
+  __m256d add_mult1 = _mm256_add_pd(mult1_a, mult1_b);
+  __m256d add_c = _mm256_add_pd(c_4a, c_4b);
+
+  double sum_v0 = reduce_avx2(add_mult0);
+  double sum_v1 = reduce_avx2(add_mult1);
+  double sum_c = reduce_avx2(add_c);
 
   // add of the last element
   double _v0 = sum_v0 +  cell_in[8] * dir0[8];
@@ -161,17 +168,14 @@ inline void compute_cell_collision(lbm_mesh_cell_t cell_out, const lbm_mesh_cell
   double f_eq_t1,f_eq_t2;
 
   // direction[0]*v[0/1] + direction[1]*v[0/1]
-  __m256d v0_4a = _mm256_set1_pd(v[0]);
-  __m256d v0_4b = _mm256_set1_pd(v[0]);
+  __m256d v0_4 = _mm256_set1_pd(v[0]);
+  __m256d v1_4 = _mm256_set1_pd(v[1]);
 
-  __m256d v1_4a = _mm256_set1_pd(v[1]);
-  __m256d v1_4b = _mm256_set1_pd(v[1]);
+  mult0_a = _mm256_mul_pd(v0_4,d0_4a);
+  mult0_b = _mm256_mul_pd(v0_4,d0_4b);
 
-  mult0_a = _mm256_mul_pd(v0_4a,d0_4a);
-  mult0_b = _mm256_mul_pd(v0_4b,d0_4b);
-
-  mult1_a = _mm256_mul_pd(v1_4a,d1_4a);
-  mult1_b = _mm256_mul_pd(v1_4b,d1_4b);
+  mult1_a = _mm256_mul_pd(v1_4,d1_4a);
+  mult1_b = _mm256_mul_pd(v1_4,d1_4b);
 
 
   __m256d p_4a = _mm256_add_pd(mult0_a,mult1_a);
@@ -182,8 +186,8 @@ inline void compute_cell_collision(lbm_mesh_cell_t cell_out, const lbm_mesh_cell
   __m256d p2_4b = _mm256_mul_pd(p_4b,p_4b);
   
 
-  __m256d _1 = _mm256_set1_pd(1.0);
-  __m256d _3 = _mm256_set1_pd(3.0);
+  __m256d _1 = _mm256_load_pd(C_ONE);;
+  __m256d _3 = _mm256_load_pd(C_THREE);
 
   // 1.0 + (3.0 * p)
   __m256d f_eq_t1_a = _mm256_fmadd_pd(_3,p_4a,_1);
@@ -200,8 +204,8 @@ inline void compute_cell_collision(lbm_mesh_cell_t cell_out, const lbm_mesh_cell
   __m256d f_eq_b = _mm256_add_pd(f_eq_t1_b,f_eq_t2_b);
 
   // equil_weight[direction]
-  __m256d equil_4a = _mm256_loadu_pd(&equil_weight[0]); 
-  __m256d equil_4b = _mm256_loadu_pd(&equil_weight[4]);
+  __m256d equil_4a = _mm256_load_pd(&equil_weight[0]); 
+  __m256d equil_4b = _mm256_load_pd(&equil_weight[4]);
 
   // equil_weight[direction] * density;
   __m256d _density = _mm256_set1_pd(density);
