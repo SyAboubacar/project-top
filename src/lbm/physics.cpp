@@ -1,4 +1,5 @@
 #include <lbm/physics.hpp>
+#include <immintrin.h>
 
 #include <cassert>
 #include <cstdlib>
@@ -18,6 +19,11 @@ const Vector direction_matrix[DIRECTIONS] = {
   {+1.0, +1.0}, {-1.0, +1.0}, {-1.0, -1.0}, {+1.0, -1.0},
   // clang-format on
 };
+
+const float dir0[9] = {0, 1, 0, -1, 0, 1, -1, -1, 1};
+const float dir1[9] = {0, 0, 1, 0, -1, 1, 1, -1, -1};
+
+
 #else
 #error Need to define adapted direction matrix.
 #endif
@@ -89,16 +95,70 @@ double compute_equilibrium_profile(Vector velocity, double density, int directio
   return f_eq;
 }
 
-void compute_cell_collision(lbm_mesh_cell_t cell_out, const lbm_mesh_cell_t cell_in) {
+inline void compute_cell_collision(lbm_mesh_cell_t __restrict__ cell_out, const lbm_mesh_cell_t __restrict__ cell_in) {
   // Compute macroscopic values
-  const double density = get_cell_density(cell_in);
+
+  double density;
   Vector v;
-  get_cell_velocity(v, cell_in, density);
+  double f_eq;
+  double p;
+  double p2;
+  double v2;
+
+  double c1;
+  double c2;
+
+  // Loop on all dimensions
+  density = 0.0;
+  v[0] = 0.0;
+  v[1] = 0.0;
+
+  double _v0 = 0.0;
+  double _v1 = 0.0;
+
+  // Sum all directions
+  for (size_t k = 0; k < DIRECTIONS; k++) {
+    float c = cell_in[k];
+    _v0 += (c * dir0[k]);
+    _v1 += (c * dir1[k]);
+
+    density += c;
+  }
+
+  density = 1/density;
+  // Normalize
+  v[0] = _v0*density;
+  v[1] = _v1*density;
+
+
+  c1 = 9.0 / 2.0;
+  c2 = 3.0 / 2.0;
+  
+  // Compute f at equilibrium
+  v2 = get_vect_norm_2(v, v);
+  const double c2_v2 = c2*v2;
+
+  double f_eq_t1,f_eq_t2;
 
   // Loop on microscopic directions
   for (size_t k = 0; k < DIRECTIONS; k++) {
-    // Compute f at equilibrium
-    double f_eq = compute_equilibrium_profile(v, density, k);
+
+    // Compute `e_i * v_i / c`
+    p = 0.0;
+    p += dir0[k] * v[0];
+    p += dir1[k] * v[1];
+
+    p2 = p * p;
+
+    // Terms without density and direction weight
+    f_eq_t1 = 1.0 + (3.0 * p);
+    f_eq_t2 = ((c1) * p2) - (c2_v2);
+    f_eq = f_eq_t1 + f_eq_t2;
+
+    // Multiply everything by the density and direction weight
+    f_eq *= equil_weight[k] * density;
+
+
     // Compute f_out
     cell_out[k] = cell_in[k] - RELAX_PARAMETER * (cell_in[k] - f_eq);
   }
@@ -190,8 +250,8 @@ void collision(Mesh* mesh_out, const Mesh* mesh_in) {
   assert(mesh_in->height == mesh_out->height);
 
   // Loop on all inner cells
-  for (size_t j = 1; j < mesh_in->height - 1; j++) {
-    for (size_t i = 1; i < mesh_in->width - 1; i++) {
+  for (size_t i = 1; i < mesh_in->width - 1; i++) {
+     for (size_t j = 1; j < mesh_in->height - 1; j++) {
       compute_cell_collision(Mesh_get_cell(mesh_out, i, j), Mesh_get_cell(mesh_in, i, j));
     }
   }
