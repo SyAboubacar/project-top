@@ -34,11 +34,11 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
 
   # RelWithDebInfo: meilleur choix pour MAQAO / perf / hotspot
   string(APPEND CMAKE_CXX_FLAGS_RELWITHDEBINFO
-    " -O3 -g -fno-omit-frame-pointer -march=native"
+    " -Ofast -g -fno-omit-frame-pointer -march=native"
   )
 
   # Release: bench final
   string(APPEND CMAKE_CXX_FLAGS_RELEASE
-    " -O3 -DNDEBUG -march=native"
+    " -Ofast -DNDEBUG -march=native"
   )
 endif()
