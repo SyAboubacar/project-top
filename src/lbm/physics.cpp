@@ -1,6 +1,7 @@
 #include <lbm/physics.hpp>
 
 #include <cassert>
+#include <cstring>
 #include <cstdlib>
 
 #include <omp.h>
@@ -16,6 +17,14 @@ const Vector direction_matrix[DIRECTIONS] = {
   {+0.0, +0.0},
   {+1.0, +0.0}, {+0.0, +1.0}, {-1.0, +0.0}, {+0.0, -1.0},
   {+1.0, +1.0}, {-1.0, +1.0}, {-1.0, -1.0}, {+1.0, -1.0},
+  // clang-format on
+};
+
+static constexpr int propagation_direction_matrix[DIRECTIONS][DIMENSIONS] = {
+  // clang-format off
+  {+0, +0},
+  {+1, +0}, {+0, +1}, {-1, +0}, {+0, -1},
+  {+1, +1}, {-1, +1}, {-1, -1}, {+1, -1},
   // clang-format on
 };
 #else
@@ -303,26 +312,29 @@ void propagation(Mesh* mesh_out, const Mesh* mesh_in) {
   const size_t width  = mesh_out->width;
   const size_t height = mesh_out->height;
 
+  const double* in0 = Mesh_get_direction(mesh_in, 0);
+  double* out0      = Mesh_get_direction(mesh_out, 0);
+  std::memcpy(out0, in0, mesh_out->cell_count * sizeof(*out0));
+
   // Loop on all directions first: each direction block is contiguous in the SoA layout.
-  for (size_t k = 0; k < DIRECTIONS; k++) {
+  for (size_t k = 1; k < DIRECTIONS; k++) {
     const double* in = Mesh_get_direction(mesh_in, k);
     double* out      = Mesh_get_direction(mesh_out, k);
-    const int dx     = static_cast<int>(direction_matrix[k][0]);
-    const int dy     = static_cast<int>(direction_matrix[k][1]);
+    const int dx     = propagation_direction_matrix[k][0];
+    const int dy     = propagation_direction_matrix[k][1];
+
+    const size_t x_begin = dx < 0 ? 1 : 0;
+    const size_t x_end   = dx > 0 ? width - 1 : width;
+    const size_t out_x_begin = dx < 0 ? x_begin - 1 : x_begin + static_cast<size_t>(dx);
 
     const size_t y_begin = dy < 0 ? 1 : 0;
     const size_t y_end   = dy > 0 ? height - 1 : height;
-    const size_t out_y_begin = static_cast<size_t>(static_cast<int>(y_begin) + dy);
+    const size_t out_y_begin = dy < 0 ? y_begin - 1 : y_begin + static_cast<size_t>(dy);
+    const size_t count       = y_end - y_begin;
 
-    for (size_t i = 0; i < width; i++) {
-      const int ii = static_cast<int>(i) + dx;
-      if (ii < 0 || ii >= static_cast<int>(width)) {
-        continue;
-      }
-
+    for (size_t i = x_begin, out_i = out_x_begin; i < x_end; i++, out_i++) {
       const size_t in_begin  = i * height + y_begin;
-      const size_t out_begin = static_cast<size_t>(ii) * height + out_y_begin;
-      const size_t count     = y_end - y_begin;
+      const size_t out_begin = out_i * height + out_y_begin;
 
 #pragma omp simd
       for (size_t offset = 0; offset < count; offset++) {
