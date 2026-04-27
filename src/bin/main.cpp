@@ -120,19 +120,15 @@ int main(int argc, char* argv[]) {
     }
     // Compute special actions (border, obstacle...)
     special_cells(&mesh, &mesh_type, &mesh_comm);
-    // Need to wait all before doing next step
-    MPI_Barrier(MPI_COMM_WORLD);
 
     // Compute collision term
     collision(&temp, &mesh);
-    // Need to wait all before doing next step
-    MPI_Barrier(MPI_COMM_WORLD);
 
     // Propagate values from node to neighboors
     lbm_comm_halo_exchange(&mesh_comm, &temp);
+
+    
     propagation(&mesh, &temp);
-    // Need to wait all before doing next step
-    MPI_Barrier(MPI_COMM_WORLD);
 
     // Save step
     if (i % WRITE_STEP_INTERVAL == 0 && lbm_gbl_config.output_filename != NULL) {

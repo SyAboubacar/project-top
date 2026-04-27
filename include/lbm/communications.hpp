@@ -45,7 +45,7 @@ typedef struct lbm_comm_t_s {
   int corner_id[4];
   /// Async requests.
   MPI_Request requests[32];
-  lbm_mesh_cell_t buffer;
+  double* buffer;
 } lbm_comm_t;
 typedef int MPI_Syncfunc_t(MPI_Comm);
 

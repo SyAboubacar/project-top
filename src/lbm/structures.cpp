@@ -6,16 +6,18 @@
 
 void Mesh_init(Mesh* mesh, uint32_t width, uint32_t height) {
   // Setup parameters
-  mesh->width  = width;
-  mesh->height = height;
+  mesh->width      = width;
+  mesh->height     = height;
+  mesh->cell_count = width * height;
 
   // Allocate memory for cells
-  mesh->cells = static_cast<double*>(malloc(width * height * DIRECTIONS * sizeof(double)));
+  mesh->cells = static_cast<double*>(malloc(mesh->cell_count * DIRECTIONS * sizeof(double)));
 }
 
 void Mesh_release(Mesh* mesh) {
-  mesh->width  = 0;
-  mesh->height = 0;
+  mesh->width      = 0;
+  mesh->height     = 0;
+  mesh->cell_count = 0;
   free(mesh->cells);
 }
 

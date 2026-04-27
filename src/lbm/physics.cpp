@@ -47,7 +47,7 @@ double get_vect_norm_2(Vector const a, Vector const b) {
 }
 
 double get_cell_density(const lbm_mesh_cell_t cell) {
-  assert(cell != NULL);
+  assert(cell.cells != NULL);
   double res = 0.0;
   for (size_t k = 0; k < DIRECTIONS; k++) {
     res += cell[k];
@@ -57,7 +57,9 @@ double get_cell_density(const lbm_mesh_cell_t cell) {
 
 void get_cell_velocity(Vector v, const lbm_mesh_cell_t cell, double cell_density) {
   assert(v != NULL);
-  assert(cell != NULL);
+  assert(cell.cells != NULL);
+
+  const double inv_cell_density = 1.0 / cell_density;
 
   // Loop on all dimensions
   for (size_t d = 0; d < DIMENSIONS; d++) {
@@ -69,7 +71,7 @@ void get_cell_velocity(Vector v, const lbm_mesh_cell_t cell, double cell_density
     }
 
     // Normalize
-    v[d] /= cell_density;
+    v[d] *= inv_cell_density;
   }
 }
 
@@ -81,7 +83,7 @@ double compute_equilibrium_profile(Vector velocity, double density, int directio
   const double p2 = p * p;
 
   // Terms without density and direction weight
-  double f_eq = 1.0 + (3.0 * p) + ((9.0 / 2.0) * p2) - ((3.0 / 2.0) * v2);
+  double f_eq = 1.0 + (3.0 * p) + (4.5 * p2) - (1.5 * v2);
 
   // Multiply everything by the density and direction weight
   f_eq *= equil_weight[direction] * density;
@@ -188,28 +190,143 @@ void special_cells(Mesh* mesh, lbm_mesh_type_t* mesh_type, const lbm_comm_t* mes
 void collision(Mesh* mesh_out, const Mesh* mesh_in) {
   assert(mesh_in->width == mesh_out->width);
   assert(mesh_in->height == mesh_out->height);
+  assert(mesh_in->cell_count == mesh_out->cell_count);
+
+  const double relax = RELAX_PARAMETER;
+  constexpr double one_ninth        = 1.0 / 9.0;
+  constexpr double four_ninths      = 4.0 * one_ninth;
+  constexpr double one_thirty_sixth = 1.0 / 36.0;
+
+  const double* in0 = Mesh_get_direction(mesh_in, 0);
+  const double* in1 = Mesh_get_direction(mesh_in, 1);
+  const double* in2 = Mesh_get_direction(mesh_in, 2);
+  const double* in3 = Mesh_get_direction(mesh_in, 3);
+  const double* in4 = Mesh_get_direction(mesh_in, 4);
+  const double* in5 = Mesh_get_direction(mesh_in, 5);
+  const double* in6 = Mesh_get_direction(mesh_in, 6);
+  const double* in7 = Mesh_get_direction(mesh_in, 7);
+  const double* in8 = Mesh_get_direction(mesh_in, 8);
+
+  double* out0 = Mesh_get_direction(mesh_out, 0);
+  double* out1 = Mesh_get_direction(mesh_out, 1);
+  double* out2 = Mesh_get_direction(mesh_out, 2);
+  double* out3 = Mesh_get_direction(mesh_out, 3);
+  double* out4 = Mesh_get_direction(mesh_out, 4);
+  double* out5 = Mesh_get_direction(mesh_out, 5);
+  double* out6 = Mesh_get_direction(mesh_out, 6);
+  double* out7 = Mesh_get_direction(mesh_out, 7);
+  double* out8 = Mesh_get_direction(mesh_out, 8);
+
+  const size_t height = mesh_in->height;
 
   // Loop on all inner cells
-  for (size_t j = 1; j < mesh_in->height - 1; j++) {
-    for (size_t i = 1; i < mesh_in->width - 1; i++) {
-      compute_cell_collision(Mesh_get_cell(mesh_out, i, j), Mesh_get_cell(mesh_in, i, j));
+  for (size_t i = 1; i < mesh_in->width - 1; i++) {
+    const size_t begin = i * height + 1;
+    const size_t end   = begin + height - 2;
+
+#pragma omp simd
+    for (size_t id = begin; id < end; id++) {
+      const double f0 = in0[id];
+      const double f1 = in1[id];
+      const double f2 = in2[id];
+      const double f3 = in3[id];
+      const double f4 = in4[id];
+      const double f5 = in5[id];
+      const double f6 = in6[id];
+      const double f7 = in7[id];
+      const double f8 = in8[id];
+
+      // Same macroscopic values as compute_cell_collision(), inlined for D2Q9.
+      const double density = f0 + f1 + f2 + f3 + f4 + f5 + f6 + f7 + f8;
+      const double inv_density = 1.0 / density;
+      const double vx          = (f1 - f3 + f5 - f6 - f7 + f8) * inv_density;
+      const double vy          = (f2 - f4 + f5 + f6 - f7 - f8) * inv_density;
+      const double v2          = vx * vx + vy * vy;
+      const double eq_base     = 1.0 - 1.5 * v2;
+      const double rho_w0      = density * four_ninths;
+      const double rho_w1      = density * one_ninth;
+      const double rho_w2      = density * one_thirty_sixth;
+
+      double p    = 0.0;
+      double p2   = 0.0;
+      double f_eq = rho_w0 * eq_base;
+      out0[id]    = f0 - relax * (f0 - f_eq);
+
+      p           = vx;
+      p2          = p * p;
+      f_eq        = rho_w1 * (eq_base + 3.0 * p + 4.5 * p2);
+      out1[id]    = f1 - relax * (f1 - f_eq);
+
+      p           = vy;
+      p2          = p * p;
+      f_eq        = rho_w1 * (eq_base + 3.0 * p + 4.5 * p2);
+      out2[id]    = f2 - relax * (f2 - f_eq);
+
+      p           = -vx;
+      p2          = p * p;
+      f_eq        = rho_w1 * (eq_base + 3.0 * p + 4.5 * p2);
+      out3[id]    = f3 - relax * (f3 - f_eq);
+
+      p           = -vy;
+      p2          = p * p;
+      f_eq        = rho_w1 * (eq_base + 3.0 * p + 4.5 * p2);
+      out4[id]    = f4 - relax * (f4 - f_eq);
+
+      p           = vx + vy;
+      p2          = p * p;
+      f_eq        = rho_w2 * (eq_base + 3.0 * p + 4.5 * p2);
+      out5[id]    = f5 - relax * (f5 - f_eq);
+
+      p           = -vx + vy;
+      p2          = p * p;
+      f_eq        = rho_w2 * (eq_base + 3.0 * p + 4.5 * p2);
+      out6[id]    = f6 - relax * (f6 - f_eq);
+
+      p           = -vx - vy;
+      p2          = p * p;
+      f_eq        = rho_w2 * (eq_base + 3.0 * p + 4.5 * p2);
+      out7[id]    = f7 - relax * (f7 - f_eq);
+
+      p           = vx - vy;
+      p2          = p * p;
+      f_eq        = rho_w2 * (eq_base + 3.0 * p + 4.5 * p2);
+      out8[id]    = f8 - relax * (f8 - f_eq);
     }
   }
 }
 
 void propagation(Mesh* mesh_out, const Mesh* mesh_in) {
-  // Loop on all cells
-  for (size_t j = 0; j < mesh_out->height; j++) {
-    for (size_t i = 0; i < mesh_out->width; i++) {
-      // For all direction
-      for (size_t k = 0; k < DIRECTIONS; k++) {
-        // Compute destination point
-        ssize_t ii = (i + direction_matrix[k][0]);
-        ssize_t jj = (j + direction_matrix[k][1]);
-        // Propagate to neighboor nodes
-        if ((ii >= 0 && ii < mesh_out->width) && (jj >= 0 && jj < mesh_out->height)) {
-          Mesh_get_cell(mesh_out, ii, jj)[k] = Mesh_get_cell(mesh_in, i, j)[k];
-        }
+  assert(mesh_in->width == mesh_out->width);
+  assert(mesh_in->height == mesh_out->height);
+  assert(mesh_in->cell_count == mesh_out->cell_count);
+
+  const size_t width  = mesh_out->width;
+  const size_t height = mesh_out->height;
+
+  // Loop on all directions first: each direction block is contiguous in the SoA layout.
+  for (size_t k = 0; k < DIRECTIONS; k++) {
+    const double* in = Mesh_get_direction(mesh_in, k);
+    double* out      = Mesh_get_direction(mesh_out, k);
+    const int dx     = static_cast<int>(direction_matrix[k][0]);
+    const int dy     = static_cast<int>(direction_matrix[k][1]);
+
+    const size_t y_begin = dy < 0 ? 1 : 0;
+    const size_t y_end   = dy > 0 ? height - 1 : height;
+    const size_t out_y_begin = static_cast<size_t>(static_cast<int>(y_begin) + dy);
+
+    for (size_t i = 0; i < width; i++) {
+      const int ii = static_cast<int>(i) + dx;
+      if (ii < 0 || ii >= static_cast<int>(width)) {
+        continue;
+      }
+
+      const size_t in_begin  = i * height + y_begin;
+      const size_t out_begin = static_cast<size_t>(ii) * height + out_y_begin;
+      const size_t count     = y_end - y_begin;
+
+#pragma omp simd
+      for (size_t offset = 0; offset < count; offset++) {
+        out[out_begin + offset] = in[in_begin + offset];
       }
     }
   }
