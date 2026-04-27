@@ -46,7 +46,21 @@ typedef struct lbm_comm_t_s {
   /// Async requests.
   MPI_Request requests[32];
   double* buffer;
+
+  MPI_Comm graph_comm;
+
+  int neighbors[8];      // ordre logique (ton ordre)
+  int mpi_neighbors[8];  // ordre MPI réel
+  int mpi_degree;
+
+  int map[8];   // logical -> mpi index
+  
+  double* sendbuf;
+  double* recvbuf;
+  int buf_size;
+
 } lbm_comm_t;
+
 typedef int MPI_Syncfunc_t(MPI_Comm);
 
 static inline int lbm_comm_width(const lbm_comm_t* mc) {
@@ -77,7 +91,7 @@ void lbm_comm_release(lbm_comm_t* mesh);
 void lbm_comm_print(const lbm_comm_t* mesh_comm);
 
 /// @brief Performance halo exchange of ghost cells.
-void lbm_comm_halo_exchange(lbm_comm_t* mesh, Mesh* mesh_to_process);
+void lbm_comm_halo_exchange(lbm_comm_t* mesh, Mesh* m, int iteration);
 
 /// @brief Mesh rendering by doing reduction on rank 0 (master).
 /// @param mesh_comm Communication mesh to use.

@@ -129,7 +129,7 @@ int main(int argc, char* argv[]) {
     collision(&temp, &mesh);
 
     // Propagate values from node to neighboors
-    lbm_comm_halo_exchange(&mesh_comm, &temp);
+    lbm_comm_halo_exchange(&mesh_comm, &temp,i);
 
     
     propagation(&mesh, &temp);
