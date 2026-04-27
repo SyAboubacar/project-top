@@ -116,13 +116,18 @@ void lbm_comm_print(const lbm_comm_t* mesh_comm) {
   );
 }
 
-void lbm_comm_init(lbm_comm_t* mesh_comm, int rank, int comm_size, uint32_t width, uint32_t height) {
+void lbm_comm_init(lbm_comm_t* mesh_comm, int rank, int comm_size, uint32_t width, uint32_t height, uint32_t nb_x,uint32_t nb_y) {
   // Compute splitting
-  int nb_y = lbm_helper_pgcd(comm_size, width);
-  int nb_x = comm_size / nb_y;
+  // int nb_y = lbm_helper_pgcd(comm_size, width);
+  // int nb_x = comm_size / nb_y;
 
-  assert(nb_x * nb_y == comm_size);
-  if (height % nb_y != 0) {
+  assert(nb_x * nb_y != comm_size);
+
+  if (nb_x * nb_y != comm_size){
+    fatal("The cut must be equal to the number of process.");
+  }
+
+  if (height % nb_y != 0 || width % nb_x != 0) {
     fatal("Can't get a 2D cut for current problem size and number of processes.");
   }
 
@@ -153,8 +158,18 @@ void lbm_comm_init(lbm_comm_t* mesh_comm, int rank, int comm_size, uint32_t widt
   mesh_comm->corner_id[CORNER_BOTTOM_RIGHT] = helper_get_rank_id(nb_x, nb_y, rank_x + 1, rank_y + 1);
 
   // If more than 1 on y, need transmission buffer
-  if (nb_y > 1) {
-    mesh_comm->buffer = static_cast<double*>(malloc(sizeof(double) * DIRECTIONS * width / nb_x));
+  if (nb_y > 1 || nb_x > 1) {
+
+    uint32_t local_width  = width  / nb_x;
+    uint32_t local_height = height / nb_y;
+    uint32_t max_size;
+
+    if (local_width > local_height)
+      max_size = local_width;
+    else
+      max_size = local_height;
+    
+    mesh_comm->buffer = static_cast<double*>(malloc(sizeof(double) * DIRECTIONS * max_size));
   } else {
     mesh_comm->buffer = NULL;
   }

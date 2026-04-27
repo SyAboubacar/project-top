@@ -60,10 +60,14 @@ int main(int argc, char* argv[]) {
 
   // Get config filename
   char* config_filename;
-  if (argc == 2) {
+  uint32_t nb_y;
+  uint32_t nb_x;
+  if (argc == 4) {
+    nb_x = atoi(argv[2]);
+    nb_y = atoi(argv[3]);
     config_filename = strdup(argv[1]);
   } else {
-    fprintf(stderr, "Usage: %s <CONFIG_FILE>\n", argv[0]);
+    fprintf(stderr, "Usage: %s <CONFIG_FILE> <nb_x> <nb_y>\n", argv[0]);
     return -1;
   }
 
@@ -75,7 +79,7 @@ int main(int argc, char* argv[]) {
 
   // Init structures, allocate memory...
   lbm_comm_t mesh_comm;
-  lbm_comm_init(&mesh_comm, rank, comm_size, MESH_WIDTH, MESH_HEIGHT);
+  lbm_comm_init(&mesh_comm, rank, comm_size, MESH_WIDTH, MESH_HEIGHT,nb_x,nb_y);
 
   Mesh mesh;
   Mesh_init(&mesh, lbm_comm_width(&mesh_comm), lbm_comm_height(&mesh_comm));
