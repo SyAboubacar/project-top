@@ -336,10 +336,7 @@ void propagation(Mesh* mesh_out, const Mesh* mesh_in) {
       const size_t in_begin  = i * height + y_begin;
       const size_t out_begin = out_i * height + out_y_begin;
 
-#pragma omp simd
-      for (size_t offset = 0; offset < count; offset++) {
-        out[out_begin + offset] = in[in_begin + offset];
-      }
+      std::memcpy(out + out_begin, in + in_begin, count * sizeof(*out));
     }
   }
 }
