@@ -60,15 +60,24 @@ int main(int argc, char* argv[]) {
 
   // Get config filename
   char* config_filename;
-  uint32_t nb_y;
-  uint32_t nb_x;
-  if (argc == 4) {
+  uint32_t nb_y = 1;
+  uint32_t nb_x = 1;
+
+
+  switch (argc)
+  {
+  case 2:
+    config_filename = strdup(argv[1]);
+    break;
+  case 4:
     nb_x = atoi(argv[2]);
     nb_y = atoi(argv[3]);
     config_filename = strdup(argv[1]);
-  } else {
+    break;
+  default:
     fprintf(stderr, "Usage: %s <CONFIG_FILE> <nb_x> <nb_y>\n", argv[0]);
     return -1;
+    break;
   }
 
   // Load config file and display it on master node
@@ -150,7 +159,7 @@ int main(int argc, char* argv[]) {
       close_file(fp);
     }
     fprintf(stderr, "\rSIMULATION COMPLETED.\n\n");
-    fprintf(stderr, "FOM:  %.2f MLUPS\n", mlups);
+    fprintf(stderr, "FOM:  %.2f MLUPS, TIME: %.2f\n", mlups,elapsed_time);	
   }
 
   // Free memory

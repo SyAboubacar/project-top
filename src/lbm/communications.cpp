@@ -112,15 +112,56 @@ void lbm_comm_print(const lbm_comm_t *mesh_comm)
 void lbm_comm_init(lbm_comm_t *mesh_comm, int rank, int comm_size, uint32_t width, uint32_t height, uint32_t nb_x,
                    uint32_t nb_y)
 {
-    // Compute splitting
-    // int nb_y = lbm_helper_pgcd(comm_size, width);
-    // int nb_x = comm_size / nb_y;
 
-    assert(nb_x * nb_y != comm_size);
-
-    if (nb_x * nb_y != comm_size)
-    {
-        fatal("The cut must be equal to the number of process.");
+    if (comm_size == 1) {
+        mesh_comm->nb_x = 1;
+        mesh_comm->nb_y = 1;
+        mesh_comm->width = width + 2;
+        mesh_comm->height = height + 2;
+        mesh_comm->x = 0;
+        mesh_comm->y = 0;
+        
+        // Pas de voisins
+        mesh_comm->left_id = -1;
+        mesh_comm->right_id = -1;
+        mesh_comm->top_id = -1;
+        mesh_comm->bottom_id = -1;
+        for (int i = 0; i < 4; i++) {
+            mesh_comm->corner_id[i] = -1;
+        }
+        
+        // Pas de buffer de communication
+        mesh_comm->buffer = NULL;
+        
+        // Topologie MPI
+        mesh_comm->graph_comm = MPI_COMM_SELF;
+        mesh_comm->mpi_degree = 0;
+        
+        // INITIALISATION IMPORTANTE : map à -1 pour toutes les directions
+        for (int i = 0; i < 8; i++) {
+            mesh_comm->map[i] = -1;
+        }
+        
+        // Buffers vides
+        mesh_comm->sendbuf = NULL;
+        mesh_comm->recvbuf = NULL;
+        mesh_comm->buf_size = 0;
+        
+        // Initialiser les voisins (tous à -1)
+        for (int i = 0; i < 8; i++) {
+            mesh_comm->neighbors[i] = -1;
+        }
+        
+        lbm_comm_print(mesh_comm);
+        return;
+    }
+    
+    // DÉTERMINATION AUTOMATIQUE SI nb_x = nb_y = 1 ou les tailles données sont pas correctes
+    if ((nb_x == 1 && nb_y == 1) || nb_x * nb_y != comm_size) {
+        int nb_y_calc = lbm_helper_pgcd(comm_size, width);
+        int nb_x_calc = comm_size / nb_y_calc;
+        nb_x = nb_x_calc;
+        nb_y = nb_y_calc;
     }
 
     if (height % nb_y != 0 || width % nb_x != 0)
@@ -183,6 +224,7 @@ void lbm_comm_init(lbm_comm_t *mesh_comm, int rank, int comm_size, uint32_t widt
                     mesh_comm->corner_id[CORNER_BOTTOM_LEFT],
                     mesh_comm->corner_id[CORNER_BOTTOM_RIGHT]};
 
+                    
     // --- MPI_Neighbot_Alltoall
     int sources[8];
     int destinations[8];
@@ -269,125 +311,6 @@ void lbm_comm_release(lbm_comm_t *mesh_comm)
     }
     free(mesh_comm->sendbuf);
     free(mesh_comm->recvbuf);
-}
-
-/// @brief Start of the horizontal asynchronous communications.
-/// @param mesh_comm Mesh communicator to use.
-/// @param mesh_to_process Mesh to use when exchanging phantom meshes.
-/// @param target_rank Rank to communicate with.
-/// @param x X coordinate to use.
-static void lbm_comm_sync_ghosts_horizontal(lbm_comm_t *mesh, Mesh *mesh_to_process, lbm_comm_type_t comm_type,
-                                            int target_rank, uint32_t x, int tag)
-{
-    // If target is -1, no comm
-    if (target_rank == -1)
-    {
-        return;
-    }
-
-    MPI_Status status;
-    switch (comm_type)
-    {
-    case COMM_SEND:
-        for (size_t k = 0; k < DIRECTIONS; k++)
-        {
-            MPI_Send(&Mesh_get_value(mesh_to_process, x, 1, k), mesh->height - 2, MPI_DOUBLE, target_rank, tag + k,
-                     MPI_COMM_WORLD);
-        }
-        break;
-    case COMM_RECV:
-        for (size_t k = 0; k < DIRECTIONS; k++)
-        {
-            MPI_Recv(&Mesh_get_value(mesh_to_process, x, 1, k), mesh->height - 2, MPI_DOUBLE, target_rank, tag + k,
-                     MPI_COMM_WORLD, &status);
-        }
-        break;
-    default:
-        fatal("unknown type of communication");
-    }
-}
-
-/// @brief Start of the diagonal asynchronous communications.
-/// @param mesh_comm Mesh communicator to use.
-/// @param mesh_to_process Mesh to use when exchanging phantom meshes.
-/// @param target_rank Rank to communicate with.
-/// @param x X coordinate to use.
-/// @param y Y coordinate to use.
-static void lbm_comm_sync_ghosts_diagonal(Mesh *mesh_to_process, lbm_comm_type_t comm_type, int target_rank, uint32_t x,
-                                          uint32_t y, int tag)
-{
-    // If target is -1, no comm
-    if (target_rank == -1)
-    {
-        return;
-    }
-
-    MPI_Status status;
-    double buffer[DIRECTIONS];
-    lbm_mesh_cell_t cell = Mesh_get_cell(mesh_to_process, x, y);
-    switch (comm_type)
-    {
-    case COMM_SEND:
-        for (size_t k = 0; k < DIRECTIONS; k++)
-        {
-            buffer[k] = cell[k];
-        }
-        MPI_Send(buffer, DIRECTIONS, MPI_DOUBLE, target_rank, tag, MPI_COMM_WORLD);
-        break;
-    case COMM_RECV:
-        MPI_Recv(buffer, DIRECTIONS, MPI_DOUBLE, target_rank, tag, MPI_COMM_WORLD, &status);
-        for (size_t k = 0; k < DIRECTIONS; k++)
-        {
-            cell[k] = buffer[k];
-        }
-        break;
-    default:
-        fatal("unknown type of communication");
-    }
-}
-
-/// @brief Start of the vertical asynchronous communications.
-/// @param mesh_comm Mesh communicator to use.
-/// @param mesh_to_process Mesh to use when exchanging phantom meshes.
-/// @param target_rank Rank to communicate with.
-/// @param y Y coordinate to use.
-static void lbm_comm_sync_ghosts_vertical(Mesh *mesh_to_process, lbm_comm_type_t comm_type, int target_rank, uint32_t y,
-                                          int tag)
-{
-    if (target_rank == -1)
-        return;
-
-    int buf_size = mesh_to_process->width - 2; // x = 1 → width-2
-    MPI_Status status;
-
-    double *buffer = (double *)malloc(buf_size * sizeof(double));
-
-    if (comm_type == COMM_SEND)
-    {
-
-        for (size_t k = 0; k < DIRECTIONS; k++)
-        {
-            for (int x = 1; x < mesh_to_process->width - 1; x++)
-            {
-                buffer[x - 1] = Mesh_get_value(mesh_to_process, x, y, k);
-            }
-            MPI_Send(buffer, buf_size, MPI_DOUBLE, target_rank, tag + k, MPI_COMM_WORLD);
-        }
-    }
-    else
-    {
-
-        for (size_t k = 0; k < DIRECTIONS; k++)
-        {
-            MPI_Recv(buffer, buf_size, MPI_DOUBLE, target_rank, tag + k, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            for (int x = 1; x < mesh_to_process->width - 1; x++)
-            {
-                Mesh_get_value(mesh_to_process, x, y, k) = buffer[x - 1];
-            }
-        }
-    }
-
-    free(buffer);
 }
 
 #define TOP_TO_BOT 10
@@ -503,19 +426,26 @@ static inline void unpack_direction(Mesh *m, int dir, double *buffer, int &idx, 
 
 void lbm_comm_halo_exchange(lbm_comm_t *mesh, Mesh *m, int iteration)
 {
+
+    if (mesh->mpi_degree == 0 || mesh->graph_comm == MPI_COMM_SELF) {
+        return;
+    }
+
     const int N = mesh->mpi_degree;
 
     int counts[N];
     int displs[N];
 
-    for (int i = 0; i < N; i++)
+    for (int i = 0; i < N; i++) {
         counts[i] = 0;
+        displs[i] = 0;
+    }
 
     int horiz = (mesh->height - 2) * DIRECTIONS;
     int vert = (mesh->width - 2) * DIRECTIONS;
     int diag = DIRECTIONS;
 
-    // --- mapping logique → MPI ---
+
     if (mesh->map[0] != -1)
         counts[mesh->map[0]] = horiz; // left
     if (mesh->map[1] != -1)
@@ -545,7 +475,6 @@ void lbm_comm_halo_exchange(lbm_comm_t *mesh, Mesh *m, int iteration)
 
     // =========================================================
     // PACK
-    // =========================================================
 
     for (int d = 0; d < 8; d++)
     {
@@ -557,15 +486,11 @@ void lbm_comm_halo_exchange(lbm_comm_t *mesh, Mesh *m, int iteration)
         pack_direction(m, d, sendbuf, idx, mesh->width, mesh->height);
     }
 
-    // =========================================================
-    // MPI COMMUNICATION
-    // =========================================================
 
     MPI_Neighbor_alltoallv(sendbuf, counts, displs, MPI_DOUBLE, recvbuf, counts, displs, MPI_DOUBLE, mesh->graph_comm);
 
     // =========================================================
     // UNPACK
-    // =========================================================
 
     for (int d = 0; d < 8; d++)
     {
