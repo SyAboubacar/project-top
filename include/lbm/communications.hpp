@@ -46,7 +46,21 @@ typedef struct lbm_comm_t_s {
   /// Async requests.
   MPI_Request requests[32];
   double* buffer;
+
+  MPI_Comm graph_comm;
+
+  int neighbors[8];      // ordre logique (ton ordre)
+  int mpi_neighbors[8];  // ordre MPI réel
+  int mpi_degree;
+
+  int map[8];   // logical -> mpi index
+  
+  double* sendbuf;
+  double* recvbuf;
+  int buf_size;
+
 } lbm_comm_t;
+
 typedef int MPI_Syncfunc_t(MPI_Comm);
 
 static inline int lbm_comm_width(const lbm_comm_t* mc) {
@@ -66,7 +80,7 @@ static inline int lbm_comm_height(const lbm_comm_t* mc) {
 /// @param comm_size Size of the communicator.
 /// @param width Width of the mesh.
 /// @param height Height of the mesh.
-void lbm_comm_init(lbm_comm_t* mesh_comm, int rank, int comm_size, uint32_t width, uint32_t height);
+void lbm_comm_init(lbm_comm_t* mesh_comm, int rank, int comm_size, uint32_t width, uint32_t height,uint32_t nb_x,uint32_t nb_y);
 
 /// @brief Frees the memory of a `lbm_comm_t`.
 /// @param mesh_comm Mesh communicator to free.
@@ -77,7 +91,7 @@ void lbm_comm_release(lbm_comm_t* mesh);
 void lbm_comm_print(const lbm_comm_t* mesh_comm);
 
 /// @brief Performance halo exchange of ghost cells.
-void lbm_comm_halo_exchange(lbm_comm_t* mesh, Mesh* mesh_to_process);
+void lbm_comm_halo_exchange(lbm_comm_t* mesh, Mesh* m, int iteration);
 
 /// @brief Mesh rendering by doing reduction on rank 0 (master).
 /// @param mesh_comm Communication mesh to use.
